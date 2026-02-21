@@ -514,6 +514,11 @@ async function main(): Promise<void> {
     sdkEnv[key] = value;
   }
 
+  // Expose GITHUB_TOKEN to process.env so git/gh CLI can authenticate.
+  if (containerInput.secrets?.GITHUB_TOKEN) {
+    process.env.GITHUB_TOKEN = containerInput.secrets.GITHUB_TOKEN;
+  }
+
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
