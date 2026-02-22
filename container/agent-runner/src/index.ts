@@ -431,7 +431,8 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        'mcp__openbb__*'
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -446,6 +447,10 @@ async function runQuery(
             NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
+        },
+        openbb: {
+          command: '/usr/local/bin/openbb-mcp',
+          args: ['--transport', 'stdio', '--default-categories', 'equity,crypto,economy,news,etf,index,currency,fixedincome,commodity,derivatives'],
         },
       },
       hooks: {

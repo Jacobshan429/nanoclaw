@@ -23,7 +23,15 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     curl \
     git \
+    python3 \
+    python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
+
+# Install OpenBB MCP server (financial data via yfinance — no API key needed)
+RUN python3 -m venv /opt/openbb && \
+    /opt/openbb/bin/pip install --no-cache-dir openbb-mcp-server 'openbb[yfinance]' && \
+    ln -s /opt/openbb/bin/openbb-mcp /usr/local/bin/openbb-mcp
 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
