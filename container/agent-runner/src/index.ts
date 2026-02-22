@@ -432,7 +432,8 @@ async function runQuery(
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
         'mcp__nanoclaw__*',
-        'mcp__openbb__*'
+        'mcp__openbb__*',
+        'mcp__exa__*'
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -450,7 +451,14 @@ async function runQuery(
         },
         openbb: {
           command: '/usr/local/bin/openbb-mcp',
-          args: ['--transport', 'stdio', '--default-categories', 'equity,crypto,economy,news,etf,index,currency,fixedincome,commodity,derivatives'],
+          args: ['--transport', 'stdio'],
+        },
+        exa: {
+          command: 'npx',
+          args: ['-y', 'exa-mcp-server'],
+          env: {
+            EXA_API_KEY: sdkEnv.EXA_API_KEY || '',
+          },
         },
       },
       hooks: {
