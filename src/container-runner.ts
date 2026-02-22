@@ -122,6 +122,10 @@ function buildVolumeMounts(
         // Enable Claude's memory feature (persists user preferences between sessions)
         // https://code.claude.com/docs/en/memory#manage-auto-memory
         CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+        // Force all model calls (main, subagents, compaction) to use opus
+        ANTHROPIC_MODEL: 'claude-opus-4-6',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-opus-4-6',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-opus-4-6',
       },
     }, null, 2) + '\n');
   }
