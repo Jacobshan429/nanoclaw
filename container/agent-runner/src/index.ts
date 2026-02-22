@@ -558,7 +558,20 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      let queryResult: Awaited<ReturnType<typeof runQuery>>;
+      try {
+        queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      } catch (queryErr) {
+        const errMsg = queryErr instanceof Error ? queryErr.message : String(queryErr);
+        if (errMsg.includes('CONTENT_LENGTH_EXCEEDS_THRESHOLD') || errMsg.includes('Input is too long')) {
+          log(`Session too long, resetting and retrying with fresh session: ${errMsg}`);
+          sessionId = undefined;
+          resumeAt = undefined;
+          queryResult = await runQuery(prompt, undefined, mcpServerPath, containerInput, sdkEnv);
+        } else {
+          throw queryErr;
+        }
+      }
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
