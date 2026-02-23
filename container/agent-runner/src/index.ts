@@ -189,6 +189,45 @@ function createPreCompactHook(): HookCallback {
 // be visible to commands Kit runs.
 const SECRET_ENV_VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
+/**
+ * Cap MCP tool parameters to prevent context overflow.
+ * Exa defaults (8 results × 10K chars = 80K per call) easily blow past limits
+ * when the agent fires multiple searches in parallel.
+ */
+function createCapMcpOutputHook(): HookCallback {
+  return async (input, _toolUseId, _context) => {
+    const preInput = input as PreToolUseHookInput;
+    const toolInput = preInput.tool_input as Record<string, unknown>;
+    const toolName = preInput.tool_name;
+
+    if (!toolName?.startsWith('mcp__exa__')) return {};
+
+    const updated = { ...toolInput };
+    let changed = false;
+
+    // Cap numResults to 5 (default is 8)
+    if (!updated.numResults || (updated.numResults as number) > 5) {
+      updated.numResults = 5;
+      changed = true;
+    }
+
+    // Cap contextMaxCharacters to 4000 (default is 10000)
+    if (!updated.contextMaxCharacters || (updated.contextMaxCharacters as number) > 4000) {
+      updated.contextMaxCharacters = 4000;
+      changed = true;
+    }
+
+    if (!changed) return {};
+
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        updatedInput: updated,
+      },
+    };
+  };
+}
+
 function createSanitizeBashHook(): HookCallback {
   return async (input, _toolUseId, _context) => {
     const preInput = input as PreToolUseHookInput;
@@ -360,7 +399,7 @@ async function runQuery(
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
-): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
+): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; contextOverflow: boolean }> {
   const stream = new MessageStream();
   stream.push(prompt);
 
@@ -389,6 +428,7 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  let contextOverflow = false;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
@@ -413,6 +453,7 @@ async function runQuery(
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
 
+  try {
   for await (const message of query({
     prompt: stream,
     options: {
@@ -463,7 +504,10 @@ async function runQuery(
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook()] }],
-        PreToolUse: [{ matcher: 'Bash', hooks: [createSanitizeBashHook()] }],
+        PreToolUse: [
+          { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
+          { matcher: 'mcp__exa__*', hooks: [createCapMcpOutputHook()] },
+        ],
       },
     }
   })) {
@@ -489,6 +533,15 @@ async function runQuery(
       resultCount++;
       const textResult = 'result' in message ? (message as { result?: string }).result : null;
       log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+
+      // Detect context overflow surfaced as a result message
+      if (textResult && (textResult.includes('CONTENT_LENGTH_EXCEEDS_THRESHOLD') || textResult.includes('Input is too long'))) {
+        log('Context overflow detected in result message');
+        contextOverflow = true;
+        writeOutput({ status: 'error', result: null, newSessionId, error: 'Context overflow' });
+        break;
+      }
+
       writeOutput({
         status: 'success',
         result: textResult || null,
@@ -496,10 +549,19 @@ async function runQuery(
       });
     }
   }
+  } catch (loopErr) {
+    const errMsg = loopErr instanceof Error ? loopErr.message : String(loopErr);
+    if (errMsg.includes('CONTENT_LENGTH_EXCEEDS_THRESHOLD') || errMsg.includes('Input is too long')) {
+      log(`Context overflow thrown during query: ${errMsg}`);
+      contextOverflow = true;
+    } else {
+      throw loopErr;
+    }
+  }
 
   ipcPolling = false;
-  log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
-  return { newSessionId, lastAssistantUuid, closedDuringQuery };
+  log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}, contextOverflow: ${contextOverflow}`);
+  return { newSessionId, lastAssistantUuid, closedDuringQuery, contextOverflow };
 }
 
 async function main(): Promise<void> {
@@ -564,13 +626,21 @@ async function main(): Promise<void> {
       } catch (queryErr) {
         const errMsg = queryErr instanceof Error ? queryErr.message : String(queryErr);
         if (errMsg.includes('CONTENT_LENGTH_EXCEEDS_THRESHOLD') || errMsg.includes('Input is too long')) {
-          log(`Session too long, resetting and retrying with fresh session: ${errMsg}`);
+          log(`Session too long (thrown), resetting and retrying with fresh session: ${errMsg}`);
           sessionId = undefined;
           resumeAt = undefined;
           queryResult = await runQuery(prompt, undefined, mcpServerPath, containerInput, sdkEnv);
         } else {
           throw queryErr;
         }
+      }
+
+      // Handle context overflow detected inside the query stream
+      if (queryResult.contextOverflow) {
+        log('Context overflow detected, resetting and retrying with fresh session');
+        sessionId = undefined;
+        resumeAt = undefined;
+        queryResult = await runQuery(prompt, undefined, mcpServerPath, containerInput, sdkEnv);
       }
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
