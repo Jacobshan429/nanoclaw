@@ -236,6 +236,28 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
           continue;
         }
 
+        // Advance next_run BEFORE running to prevent the next poll from
+        // re-enqueuing the same task while it's still executing.
+        let nextRun: string | null = null;
+        if (currentTask.schedule_type === 'cron') {
+          try {
+            const interval = CronExpressionParser.parse(
+              currentTask.schedule_value,
+              { tz: TIMEZONE },
+            );
+            nextRun = interval.next().toISOString();
+          } catch {
+            // Invalid cron — will be caught again in runTask
+          }
+        } else if (currentTask.schedule_type === 'interval') {
+          const ms = parseInt(currentTask.schedule_value, 10);
+          if (!isNaN(ms) && ms > 0) {
+            nextRun = new Date(Date.now() + ms).toISOString();
+          }
+        }
+        // 'once' tasks: set next_run to null so they won't be picked up again
+        updateTask(currentTask.id, { next_run: nextRun });
+
         deps.queue.enqueueTask(currentTask.chat_jid, currentTask.id, () =>
           runTask(currentTask, deps),
         );

@@ -40,3 +40,48 @@ export function readEnvFile(keys: string[]): Record<string, string> {
 
   return result;
 }
+
+/**
+ * Update or add key-value pairs in the .env file.
+ * Existing keys are replaced in-place; new keys are appended.
+ * Writes atomically (temp file + rename).
+ */
+export function updateEnvFile(updates: Record<string, string>): void {
+  const validKey = /^[A-Z_][A-Z0-9_]*$/;
+  for (const key of Object.keys(updates)) {
+    if (!validKey.test(key)) {
+      throw new Error(`Invalid env key: "${key}"`);
+    }
+  }
+
+  const envFile = path.join(process.cwd(), '.env');
+  let lines: string[] = [];
+  try {
+    lines = fs.readFileSync(envFile, 'utf-8').split('\n');
+  } catch {
+    // File doesn't exist yet — start fresh
+  }
+
+  const remaining = new Set(Object.keys(updates));
+
+  const newLines = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return line;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) return line;
+    const key = trimmed.slice(0, eqIdx).trim();
+    if (remaining.has(key)) {
+      remaining.delete(key);
+      return `${key}=${updates[key]}`;
+    }
+    return line;
+  });
+
+  for (const key of remaining) {
+    newLines.push(`${key}=${updates[key]}`);
+  }
+
+  const tempPath = `${envFile}.tmp`;
+  fs.writeFileSync(tempPath, newLines.join('\n'));
+  fs.renameSync(tempPath, envFile);
+}

@@ -280,6 +280,123 @@ Use available_groups.json to find the JID for a group. The folder name should be
   },
 );
 
+server.tool(
+  'restart_service',
+  'Restart the NanoClaw host process. Main group only. The bot will go offline briefly and come back automatically. Your container will be terminated during restart.',
+  {
+    reason: z.string().optional().describe('Why the restart is needed'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return {
+        content: [{ type: 'text' as const, text: 'Only the main group can restart the service.' }],
+        isError: true,
+      };
+    }
+
+    const data = {
+      type: 'restart_service',
+      chatJid,
+      reason: args.reason || 'Requested by agent',
+      timestamp: new Date().toISOString(),
+    };
+
+    writeIpcFile(TASKS_DIR, data);
+
+    return {
+      content: [{ type: 'text' as const, text: 'Restart requested. The service will restart in a few seconds. Your container will be terminated.' }],
+    };
+  },
+);
+
+server.tool(
+  'rebuild_image',
+  'Rebuild the NanoClaw agent container image. Main group only. The service stays running during the build. New containers will use the updated image.',
+  {
+    no_cache: z.boolean().default(false).describe('If true, prune the builder cache first and rebuild from scratch. Use when cached layers are stale.'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return {
+        content: [{ type: 'text' as const, text: 'Only the main group can rebuild the container image.' }],
+        isError: true,
+      };
+    }
+
+    const data = {
+      type: 'rebuild_image',
+      chatJid,
+      noCache: args.no_cache,
+      timestamp: new Date().toISOString(),
+    };
+
+    writeIpcFile(TASKS_DIR, data);
+
+    return {
+      content: [{ type: 'text' as const, text: `Image rebuild requested${args.no_cache ? ' (no-cache)' : ''}. Build status will be sent to the chat.` }],
+    };
+  },
+);
+
+server.tool(
+  'update_config',
+  `Update NanoClaw configuration. Main group only.
+
+Can update:
+- .env values (take effect after restart): CONTAINER_TIMEOUT, MAX_CONCURRENT_CONTAINERS, IDLE_TIMEOUT, ASSISTANT_NAME, etc.
+- Per-group containerConfig (takes effect on next container spawn): timeout
+
+Do NOT use this to update secrets (API keys, tokens). Those must be set manually.`,
+  {
+    env_updates: z.record(z.string(), z.string()).optional().describe('Key-value pairs to set in .env (e.g., {"CONTAINER_TIMEOUT": "600000"})'),
+    target_jid: z.string().optional().describe('JID of the group to update containerConfig for. Defaults to current group.'),
+    container_config: z.object({
+      timeout: z.number().optional().describe('Container timeout in ms'),
+    }).optional().describe('Container config updates for the target group'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return {
+        content: [{ type: 'text' as const, text: 'Only the main group can update configuration.' }],
+        isError: true,
+      };
+    }
+
+    const blockedKeys = new Set([
+      'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'GITHUB_TOKEN',
+      'EXA_API_KEY', 'TELEGRAM_BOT_TOKEN',
+    ]);
+    if (args.env_updates) {
+      const blocked = Object.keys(args.env_updates).filter((k) => blockedKeys.has(k));
+      if (blocked.length > 0) {
+        return {
+          content: [{ type: 'text' as const, text: `Cannot update secrets via this tool: ${blocked.join(', ')}. Set them manually in .env.` }],
+          isError: true,
+        };
+      }
+    }
+
+    const data: Record<string, unknown> = {
+      type: 'update_config',
+      chatJid,
+      timestamp: new Date().toISOString(),
+    };
+    if (args.env_updates) data.envUpdates = args.env_updates;
+    if (args.container_config) {
+      data.groupConfigUpdates = {
+        targetJid: args.target_jid || chatJid,
+        containerConfig: args.container_config,
+      };
+    }
+
+    writeIpcFile(TASKS_DIR, data);
+
+    return {
+      content: [{ type: 'text' as const, text: 'Config update requested. Results will be sent to the chat.' }],
+    };
+  },
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);

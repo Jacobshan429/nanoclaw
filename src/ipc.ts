@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 
 import { CronExpressionParser } from 'cron-parser';
 
@@ -10,7 +11,9 @@ import {
   TIMEZONE,
 } from './config.js';
 import { AvailableGroup } from './container-runner.js';
+import { CONTAINER_RUNTIME_BIN } from './container-runtime.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
+import { updateEnvFile } from './env.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
@@ -27,6 +30,8 @@ export interface IpcDeps {
     availableGroups: AvailableGroup[],
     registeredJids: Set<string>,
   ) => void;
+  restartProcess: (delayMs: number) => void;
+  getProjectRoot: () => string;
 }
 
 let ipcWatcherRunning = false;
@@ -170,6 +175,16 @@ export async function processTaskIpc(
     trigger?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
+    // For restart_service
+    reason?: string;
+    // For rebuild_image
+    noCache?: boolean;
+    // For update_config
+    envUpdates?: Record<string, string>;
+    groupConfigUpdates?: {
+      targetJid: string;
+      containerConfig: Partial<NonNullable<RegisteredGroup['containerConfig']>>;
+    };
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -380,6 +395,132 @@ export async function processTaskIpc(
         );
       }
       break;
+
+    case 'restart_service':
+      if (!isMain) {
+        logger.warn(
+          { sourceGroup },
+          'Unauthorized restart_service attempt blocked',
+        );
+        break;
+      }
+      logger.info(
+        { sourceGroup, reason: data.reason },
+        'Service restart requested via IPC',
+      );
+      if (data.chatJid) {
+        await deps.sendMessage(
+          data.chatJid,
+          'Restarting NanoClaw... Back in a few seconds.',
+        );
+      }
+      deps.restartProcess(2000);
+      break;
+
+    case 'rebuild_image':
+      if (!isMain) {
+        logger.warn(
+          { sourceGroup },
+          'Unauthorized rebuild_image attempt blocked',
+        );
+        break;
+      }
+      logger.info(
+        { sourceGroup, noCache: data.noCache },
+        'Image rebuild requested via IPC',
+      );
+      if (data.chatJid) {
+        await deps.sendMessage(
+          data.chatJid,
+          `Building container image${data.noCache ? ' (no-cache)' : ''}...`,
+        );
+      }
+      try {
+        const projectRoot = deps.getProjectRoot();
+        if (data.noCache) {
+          execSync(`${CONTAINER_RUNTIME_BIN} builder prune -f`, {
+            stdio: 'pipe',
+            timeout: 30000,
+          });
+        }
+        execSync(path.join(projectRoot, 'container', 'build.sh'), {
+          encoding: 'utf-8',
+          timeout: 600000,
+          cwd: projectRoot,
+        });
+        logger.info({ sourceGroup }, 'Image rebuild completed');
+        if (data.chatJid) {
+          await deps.sendMessage(
+            data.chatJid,
+            'Container image rebuilt successfully.',
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error({ sourceGroup, err }, 'Image rebuild failed');
+        if (data.chatJid) {
+          await deps.sendMessage(
+            data.chatJid,
+            `Build failed: ${msg.slice(-500)}`,
+          );
+        }
+      }
+      break;
+
+    case 'update_config': {
+      if (!isMain) {
+        logger.warn(
+          { sourceGroup },
+          'Unauthorized update_config attempt blocked',
+        );
+        break;
+      }
+      const results: string[] = [];
+
+      if (data.envUpdates && Object.keys(data.envUpdates).length > 0) {
+        try {
+          updateEnvFile(data.envUpdates);
+          results.push(
+            `Updated .env: ${Object.keys(data.envUpdates).join(', ')}`,
+          );
+          logger.info(
+            { sourceGroup, keys: Object.keys(data.envUpdates) },
+            'Env file updated via IPC',
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          results.push(`Failed to update .env: ${msg}`);
+          logger.error({ sourceGroup, err }, 'Env file update failed');
+        }
+      }
+
+      if (data.groupConfigUpdates?.targetJid) {
+        const { targetJid, containerConfig } = data.groupConfigUpdates;
+        const group = registeredGroups[targetJid];
+        if (group) {
+          const merged = { ...group.containerConfig, ...containerConfig };
+          deps.registerGroup(targetJid, {
+            ...group,
+            containerConfig: merged,
+          });
+          results.push(`Updated containerConfig for ${group.name}`);
+          logger.info(
+            { sourceGroup, targetJid },
+            'Container config updated via IPC',
+          );
+        } else {
+          results.push(`Group not found for JID: ${targetJid}`);
+        }
+      }
+
+      if (data.chatJid && results.length > 0) {
+        await deps.sendMessage(
+          data.chatJid,
+          `Config update:\n${results.join('\n')}`,
+        );
+      }
+      break;
+    }
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');

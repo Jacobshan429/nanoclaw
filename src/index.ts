@@ -515,6 +515,13 @@ async function main(): Promise<void> {
     getAvailableGroups,
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
+    restartProcess: (delayMs: number) => {
+      setTimeout(() => {
+        logger.info('Restarting process via IPC command');
+        process.exit(0);
+      }, delayMs);
+    },
+    getProjectRoot: () => process.cwd(),
   });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();

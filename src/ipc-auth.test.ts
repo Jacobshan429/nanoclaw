@@ -61,6 +61,8 @@ beforeEach(() => {
     syncGroupMetadata: async () => {},
     getAvailableGroups: () => [],
     writeGroupsSnapshot: () => {},
+    restartProcess: () => {},
+    getProjectRoot: () => '/tmp/test',
   };
 });
 
