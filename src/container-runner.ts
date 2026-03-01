@@ -62,12 +62,14 @@ function buildVolumeMounts(
   const projectRoot = process.cwd();
   const groupDir = resolveGroupFolderPath(group.folder);
 
-  // All groups get the project root mounted read-write.
-  mounts.push({
-    hostPath: projectRoot,
-    containerPath: '/workspace/project',
-    readonly: false,
-  });
+  // Mount project root for main and tesla-degens groups (read-write).
+  if (isMain || group.folder === 'tesla-degens') {
+    mounts.push({
+      hostPath: projectRoot,
+      containerPath: '/workspace/project',
+      readonly: false,
+    });
+  }
 
   if (isMain) {
     // Main also gets its group folder as the working directory
