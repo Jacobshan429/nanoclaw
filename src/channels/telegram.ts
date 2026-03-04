@@ -1,6 +1,6 @@
 import { Bot } from 'grammy';
 
-import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
+import { ASSISTANT_NAME, TELEGRAM_BOT_TOKEN, TRIGGER_PATTERN } from '../config.js';
 import { logger } from '../logger.js';
 import {
   Channel,
@@ -8,6 +8,12 @@ import {
   OnInboundMessage,
   RegisteredGroup,
 } from '../types.js';
+import { registerChannel } from './registry.js';
+
+registerChannel('telegram', (opts) => {
+  if (!TELEGRAM_BOT_TOKEN) return null;
+  return new TelegramChannel(TELEGRAM_BOT_TOKEN, opts);
+});
 
 export interface TelegramChannelOpts {
   onMessage: OnInboundMessage;
