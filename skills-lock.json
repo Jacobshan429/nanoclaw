@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "okx-dex-market": {
+      "source": "okx/onchainos-skills",
+      "sourceType": "github",
+      "computedHash": "95ba72f1c2aedec516890cca6865479a623ff13c98d3621c125167e2b79d840b"
+    },
+    "okx-dex-swap": {
+      "source": "okx/onchainos-skills",
+      "sourceType": "github",
+      "computedHash": "e19ce6a20e3a6d65be7b0a87eee0295b5bcbe4052015d173c7161c0c2d860025"
+    },
+    "okx-dex-token": {
+      "source": "okx/onchainos-skills",
+      "sourceType": "github",
+      "computedHash": "b78f5dd111c9e8bd255625562cb26f862efcf2f751cf26342d65f85a245213da"
+    },
+    "okx-onchain-gateway": {
+      "source": "okx/onchainos-skills",
+      "sourceType": "github",
+      "computedHash": "b8e45546ca1ac8dca33e49888766a59254b4aadf183acf1e202c29ae5c3d25f8"
+    },
+    "okx-wallet-portfolio": {
+      "source": "okx/onchainos-skills",
+      "sourceType": "github",
+      "computedHash": "cbcbee661e302836637c7682ecdff3371745111bb58f06140687fe13aa37f676"
+    }
+  }
+}
