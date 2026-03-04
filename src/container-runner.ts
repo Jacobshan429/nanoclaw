@@ -224,6 +224,9 @@ function readSecrets(): Record<string, string> {
     'ANTHROPIC_AUTH_TOKEN',
     'GITHUB_TOKEN',
     'EXA_API_KEY',
+    'OKX_API_KEY',
+    'OKX_SECRET_KEY',
+    'OKX_PASSPHRASE',
   ]);
 }
 
