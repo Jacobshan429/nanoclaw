@@ -2,7 +2,10 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { ensureContainerRuntimeRunning, cleanupOrphans } from './container-runtime.js';
+import {
+  ensureContainerRuntimeRunning,
+  cleanupOrphans,
+} from './container-runtime.js';
 import {
   ASSISTANT_NAME,
   IDLE_TIMEOUT,
@@ -439,7 +442,6 @@ function recoverPendingMessages(): void {
     }
   }
 }
-
 
 async function main(): Promise<void> {
   ensureContainerRuntimeRunning();
