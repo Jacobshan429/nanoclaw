@@ -253,7 +253,10 @@ export class TelegramChannel implements Channel {
         });
       });
     } catch (err) {
-      logger.error({ err }, 'Telegram reconnect failed, will retry next heartbeat');
+      logger.error(
+        { err },
+        'Telegram reconnect failed, will retry next heartbeat',
+      );
       // Restart heartbeat so the next tick retries
       this.startHeartbeat();
     } finally {
