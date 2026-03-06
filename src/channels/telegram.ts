@@ -1,6 +1,11 @@
 import { Bot } from 'grammy';
 
-import { ASSISTANT_NAME, TELEGRAM_BOT_TOKEN, TRIGGER_PATTERN } from '../config.js';
+import {
+  ASSISTANT_NAME,
+  TELEGRAM_BOT_TOKEN,
+  TELEGRAM_HEARTBEAT_INTERVAL,
+  TRIGGER_PATTERN,
+} from '../config.js';
 import { logger } from '../logger.js';
 import {
   Channel,
@@ -27,6 +32,9 @@ export class TelegramChannel implements Channel {
   private bot: Bot | null = null;
   private opts: TelegramChannelOpts;
   private botToken: string;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private lastActivity = Date.now();
+  private reconnecting = false;
 
   constructor(botToken: string, opts: TelegramChannelOpts) {
     this.botToken = botToken;
@@ -99,6 +107,7 @@ export class TelegramChannel implements Channel {
 
       // Store chat metadata for discovery
       this.opts.onChatMetadata(chatJid, timestamp, chatName);
+      this.lastActivity = Date.now();
 
       // Only deliver full message for registered groups
       const group = this.opts.registeredGroups()[chatJid];
@@ -142,6 +151,7 @@ export class TelegramChannel implements Channel {
       const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
 
       this.opts.onChatMetadata(chatJid, timestamp);
+      this.lastActivity = Date.now();
       this.opts.onMessage(chatJid, {
         id: ctx.message.message_id.toString(),
         chat_jid: chatJid,
@@ -185,10 +195,70 @@ export class TelegramChannel implements Channel {
           console.log(
             `  Send /chatid to the bot to get a chat's registration ID\n`,
           );
+          this.startHeartbeat();
           resolve();
         },
       });
     });
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.lastActivity = Date.now();
+    this.heartbeatTimer = setInterval(() => {
+      this.checkHealth();
+    }, TELEGRAM_HEARTBEAT_INTERVAL);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private async checkHealth(): Promise<void> {
+    if (!this.bot || this.reconnecting) return;
+    try {
+      await this.bot.api.getMe();
+      const silentMs = Date.now() - this.lastActivity;
+      if (silentMs > 10 * 60_000) {
+        logger.debug(
+          { silentMinutes: Math.round(silentMs / 60_000) },
+          'Telegram API reachable but no messages received recently',
+        );
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Telegram heartbeat failed, reconnecting');
+      await this.reconnect();
+    }
+  }
+
+  private async reconnect(): Promise<void> {
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+    this.stopHeartbeat();
+    try {
+      this.bot?.stop();
+      await new Promise<void>((resolve) => {
+        this.bot!.start({
+          onStart: (botInfo) => {
+            logger.info(
+              { username: botInfo.username, id: botInfo.id },
+              'Telegram bot reconnected',
+            );
+            this.startHeartbeat();
+            resolve();
+          },
+        });
+      });
+    } catch (err) {
+      logger.error({ err }, 'Telegram reconnect failed, will retry next heartbeat');
+      // Restart heartbeat so the next tick retries
+      this.startHeartbeat();
+    } finally {
+      this.reconnecting = false;
+    }
   }
 
   async sendMessage(jid: string, text: string): Promise<void> {
@@ -227,6 +297,7 @@ export class TelegramChannel implements Channel {
   }
 
   async disconnect(): Promise<void> {
+    this.stopHeartbeat();
     if (this.bot) {
       this.bot.stop();
       this.bot = null;

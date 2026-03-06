@@ -20,6 +20,7 @@ export const ASSISTANT_HAS_OWN_NUMBER =
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
+export const TELEGRAM_HEARTBEAT_INTERVAL = 120_000; // 2 min — check if Telegram polling is alive
 
 // Absolute paths needed for container mounts
 const PROJECT_ROOT = process.cwd();
